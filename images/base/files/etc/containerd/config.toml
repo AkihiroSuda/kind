@@ -6,6 +6,8 @@ version = 2
   default_runtime_name = "runc"
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
   runtime_type = "io.containerd.runc.v2"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  BinaryName = "runc"
 
 # Setup a runtime with the magic name ("test-handler") used for Kubernetes
 # runtime class tests ...
@@ -20,3 +22,5 @@ version = 2
   tolerate_missing_hugepages_controller = true
   # explicitly use default snapshotter so we can sed it in entrypoint
   snapshotter = "overlayfs"
+  # restrict_oom_score_adj needs to be true when running inside UserNS (rootless)
+  restrict_oom_score_adj = false
