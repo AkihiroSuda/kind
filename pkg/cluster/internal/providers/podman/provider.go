@@ -350,3 +350,11 @@ func (p *provider) CollectLogs(dir string, nodes []nodes.Node) error {
 	errs = append(errs, errors.AggregateConcurrent(fns))
 	return errors.NewAggregate(errs)
 }
+
+// Info returns the provider info.
+func (p *provider) Info() (*providers.ProviderInfo, error) {
+	info := &providers.ProviderInfo{
+		Rootless: os.Geteuid() != 0,
+	}
+	return info, nil
+}

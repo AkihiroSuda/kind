@@ -11,11 +11,6 @@ Starting with kind 0.11.0 and Docker 20.10, Rootless Docker can be used as the n
 Rootless Podman is not supported at the moment.
 
 ## Host requirements
-### Kernel
-The kernel needs to be 5.7 or later currently.
-In future, we may be able to support a broader range of the kernel version.
-
-### cgroup v2
 The host needs to be running with cgroup v2.
 
 cgroup v2 is enabled by default on Fedora.
@@ -32,11 +27,8 @@ Delegate=yes
 
 - Create `/etc/sysctl.d/99-rootless.conf` with the following content, and then run `sudo sysctl --system`:
 ```
-net.netfilter.nf_conntrack_max=<32768 * the number of CPUs>
 kernel.dmesg_restrict=0
 ```
-
-e.g, When the number of CPUs (`nproc`) is 4, `net.netfilter.nf_conntrack_max=131072`.
 
 ## Restrictions
 

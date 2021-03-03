@@ -41,18 +41,6 @@ validate_userns() {
     exit 1
   fi
 
-  if ! [ -f "/proc/sys/net/netfilter/nf_conntrack_max" ]; then
-    echo "ERROR: UserNS: /proc/sys/net/netfilter/nf_conntrack_max does not exist (needs kernel 5.7 or later)" >&2
-  fi
-  local nf_conntrack_max
-  nf_conntrack_max="$(cat /proc/sys/net/netfilter/nf_conntrack_max)"
-  local nf_conntrack_max_expected="$((32768 * $(nproc)))"
-  if [[ "${nf_conntrack_max}" != "${nf_conntrack_max_expected}" ]]; then
-    # This ERROR can be demoted to WARNING when k/k PR gets merged: https://github.com/kubernetes/kubernetes/pull/92863
-    echo "ERROR: UserNS: expected net.netfilter.nf_conntrack_max to be ${nf_conntrack_max_expected}, got ${nf_conntrack_max}" >&2
-    exit 1
-  fi
-
   local dmesg_restrict
   dmesg_restrict="$(cat /proc/sys/kernel/dmesg_restrict)"
   if [[ "${dmesg_restrict}" != "0" ]]; then
@@ -129,10 +117,6 @@ configure_containerd() {
     fake_sysctl "kernel.panic_on_oops"
     fake_sysctl "kernel.keys.root_maxkeys"
     fake_sysctl "kernel.keys.root_maxbytes"
-
-    # Wrap runc to mount fake "/sys/module/nf_conntrack/parameters/hashsize" for kube-proxy.
-    # Workaround until https://github.com/kubernetes/kubernetes/pull/92863 gets merged in the upstream.
-    sed -i 's/BinaryName = "runc"/BinaryName = "userns-ociwrapper"/' /etc/containerd/config.toml
   fi
 }
 

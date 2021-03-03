@@ -6,8 +6,6 @@ version = 2
   default_runtime_name = "runc"
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
   runtime_type = "io.containerd.runc.v2"
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-  BinaryName = "runc"
 
 # Setup a runtime with the magic name ("test-handler") used for Kubernetes
 # runtime class tests ...
