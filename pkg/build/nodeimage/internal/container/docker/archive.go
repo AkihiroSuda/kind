@@ -26,8 +26,13 @@ import (
 	"os"
 	"strings"
 
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"sigs.k8s.io/kind/pkg/errors"
 )
+
+// ioContainerdImageName appears as an annotation in a manifest entry in "index.json".
+const ioContainerdImageName = "io.containerd.image.name"
 
 // GetArchiveTags obtains a list of "repo:tag" docker image tags from a
 // given docker image archive (tarball) path
@@ -35,6 +40,7 @@ import (
 // https://github.com/moby/moby/blob/master/image/spec/v1.md
 // https://github.com/moby/moby/blob/master/image/spec/v1.1.md
 // https://github.com/moby/moby/blob/master/image/spec/v1.2.md
+// https://github.com/opencontainers/image-spec/blob/v1.0.2/image-index.md  (annotation "io.containerd.image.name")
 func GetArchiveTags(path string) ([]string, error) {
 	// open the archive and find the repositories entry
 	f, err := os.Open(path)
@@ -52,7 +58,7 @@ func GetArchiveTags(path string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if hdr.Name == "manifest.json" || hdr.Name == "repositories" {
+		if hdr.Name == "manifest.json" || hdr.Name == "repositories" || hdr.Name == "index.json" {
 			break
 		}
 	}
@@ -80,13 +86,23 @@ func GetArchiveTags(path string) ([]string, error) {
 			return nil, err
 		}
 		res = append(res, manifest[0].RepoTags...)
+	} else if hdr.Name == "index.json" {
+		var idx ocispec.Index
+		if err := json.Unmarshal(b, &idx); err != nil {
+			return nil, err
+		}
+		for _, mani := range idx.Manifests {
+			if repoTag, ok := mani.Annotations[ioContainerdImageName]; ok {
+				res = append(res, repoTag)
+			}
+		}
 	}
 	return res, nil
 }
 
 // EditArchive applies edit to reader's image repositories,
 // IE the repository part of repository:tag in image tags
-// This supports v1 / v1.1 / v1.2 Docker Image Archives
+// This supports v1 / v1.1 / v1.2 Docker Image Archives and OCI Image Spec v1.0 Archives.
 //
 // editRepositories should be a function that returns the input or an edited
 // form, where the input is the image repository
@@ -94,6 +110,7 @@ func GetArchiveTags(path string) ([]string, error) {
 // https://github.com/moby/moby/blob/master/image/spec/v1.md
 // https://github.com/moby/moby/blob/master/image/spec/v1.1.md
 // https://github.com/moby/moby/blob/master/image/spec/v1.2.md
+// https://github.com/opencontainers/image-spec/blob/v1.0.2/image-index.md  (annotation "io.containerd.image.name")
 func EditArchive(reader io.Reader, writer io.Writer, editRepositories func(string) string, architectureOverride string) error {
 	tarReader := tar.NewReader(reader)
 	tarWriter := tar.NewWriter(writer)
@@ -120,6 +137,12 @@ func EditArchive(reader io.Reader, writer io.Writer, editRepositories func(strin
 			hdr.Size = int64(len(b))
 		} else if hdr.Name == "manifest.json" {
 			b, err = editManifestRepositories(b, editRepositories)
+			if err != nil {
+				return err
+			}
+			hdr.Size = int64(len(b))
+		} else if hdr.Name == "index.json" {
+			b, err = editIndexJSON(b, editRepositories)
 			if err != nil {
 				return err
 			}
@@ -185,9 +208,10 @@ func editRepositoriesFile(raw []byte, editRepositories func(string) string) ([]b
 
 // https://github.com/moby/moby/blob/master/image/spec/v1.2.md#combined-image-json--filesystem-changeset-format
 type metadataEntry struct {
-	Config   string   `json:"Config"`
-	RepoTags []string `json:"RepoTags"`
-	Layers   []string `json:"Layers"`
+	Config       string                               `json:"Config"`
+	RepoTags     []string                             `json:"RepoTags"`
+	Layers       []string                             `json:"Layers"`
+	LayerSources map[digest.Digest]ocispec.Descriptor `json:"LayerSources,omitempty"` // since Docker v25
 }
 
 // applies
@@ -212,6 +236,29 @@ func editManifestRepositories(raw []byte, editRepositories func(string) string) 
 	}
 
 	return json.Marshal(entries)
+}
+
+// editIndexJSON edits "index.json" that appears in OCI Image Spec v1 archives.
+func editIndexJSON(raw []byte, editRepositories func(string) string) ([]byte, error) {
+	var idx ocispec.Index
+	if err := json.Unmarshal(raw, &idx); err != nil {
+		return nil, err
+	}
+
+	for i := range idx.Manifests {
+		mani := &idx.Manifests[i]
+		if repoTag, ok := mani.Annotations[ioContainerdImageName]; ok {
+			parts := strings.Split(repoTag, ":")
+			if len(parts) > 2 {
+				return nil, fmt.Errorf("invalid repotag: %s", repoTag)
+			}
+			parts[0] = editRepositories(parts[0])
+			mani.Annotations[ioContainerdImageName] = strings.Join(parts, ":")
+		}
+	}
+
+	// NOTE: we may lose some JSON fields if the original JSON was produced with a newer version of OCI Image Spec.
+	return json.Marshal(idx)
 }
 
 // returns repository:tag:ref
